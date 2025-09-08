@@ -1,5 +1,5 @@
 {
-  "name": "dify-ai-provider",
+  "name": "@beedick/dify-ai-provider",
   "version": "1.0.1",
   "description": "Dify provider for Vercel AI SDK",
   "main": "dist/index.js",

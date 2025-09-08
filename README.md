@@ -1,10 +1,18 @@
 # Dify AI Provider for Vercel AI SDK
 
-> **Note:** The current version only supports text messages.
-
 A provider for [Dify.AI](https://dify.ai/) to work with [Vercel AI SDK](https://sdk.vercel.ai/).
 
 This provider allows you to easily integrate Dify AI's application workflow with your applications using the Vercel AI SDK.
+
+## ✨ Features
+
+- 🤖 **Full Dify Integration**: Support for all Dify application types (Chat, Workflow, Agent)
+- 🧠 **Reasoning Support**: Automatic parsing of `<think>...</think>` tags for AI reasoning process
+- 📊 **Workflow Tracking**: Real-time monitoring of workflow execution and node performance
+- 🔄 **Streaming & Blocking**: Support for both streaming and blocking response modes
+- 📈 **Rich Metadata**: Access to conversation IDs, message IDs, and execution reports
+- 🛠️ **Agent Insights**: Detailed agent thought processes and tool usage information
+- 🎯 **Type Safe**: Full TypeScript support with comprehensive type definitions
 
 ## Setting Up with Dify
 
@@ -71,7 +79,7 @@ const { text: followUpText } = await generateText({
 console.log("followUpText", followUpText);
 ```
 
-### Streaming
+### Advanced Streaming with Reasoning and Workflow Tracking
 
 ```typescript
 import { streamText } from "ai";
@@ -79,14 +87,41 @@ import { difyProvider } from "dify-ai-provider";
 
 const dify = difyProvider("dify-application-id");
 
-const stream = streamText({
+const result = streamText({
   model: dify,
-  messages: [{ role: "user", content: "Write a short poem about AI." }],
+  messages: [{ role: "user", content: "Explain quantum computing with deep thinking." }],
+  headers: { "user-id": "user-123" }
 });
 
-// Process text deltas as they arrive
-for await (const chunk of stream.textStream) {
-  process.stdout.write(chunk);
+// Monitor the complete AI process
+for await (const part of result.fullStream) {
+  switch (part.type) {
+    case 'reasoning-start':
+      console.log('🤔 AI is thinking...');
+      break;
+      
+    case 'reasoning-delta':
+      console.log(`💭 Thought: ${part.delta}`);
+      break;
+      
+    case 'text-delta':
+      process.stdout.write(part.delta); // Real-time answer
+      break;
+      
+    case 'raw':
+      const event = part.rawValue as any;
+      if (event.difyEvent === 'workflow_started') {
+        console.log(`🚀 Workflow started: ${event.workflow_run_id}`);
+      } else if (event.difyEvent === 'node_finished') {
+        console.log(`✅ Node completed in ${event.duration}s`);
+      }
+      break;
+      
+    case 'finish':
+      const execution = part.providerMetadata?.dify?.workflowExecution;
+      console.log(`🎉 Complete! Workflow took ${execution?.duration}s`);
+      break;
+  }
 }
 ```
 
@@ -153,6 +188,22 @@ const stream = createDataStream({
 });
 ```
 
+## Event Types
+
+The provider emits various event types through the AI SDK's streaming interface:
+
+### Standard AI SDK Events
+- `text-start` / `text-delta` / `text-end` - Answer content
+- `reasoning-start` / `reasoning-delta` / `reasoning-end` - AI thinking process (from `<think>` tags)
+- `response-metadata` - Basic response information
+- `finish` - Completion with usage statistics and execution report
+
+### Dify-Specific Events (via `raw` type)
+- `workflow_started` - Workflow execution begins
+- `workflow_finished` - Workflow execution completes
+- `node_started` / `node_finished` - Individual node execution
+- `agent_thought` - Agent reasoning and tool usage
+
 ## API Reference
 
 ### `difyProvider(modelId, settings?)`
@@ -161,18 +212,17 @@ Creates a Dify chat model instance.
 
 #### Parameters
 
-- ProviderSettings
+- **modelId** (string): The ID of your Dify application
+- **settings** (optional object):
+  - `baseURL` (string): The base URL for the Dify API. Default is `https://api.dify.ai/v1`
+  - `headers` (Record<string, string>): Additional headers for API requests
+  - `inputs` (object): Additional inputs to send with the request
+  - `responseMode` (string): Response mode, defaults to `"streaming"`
+  - `apiKey` (string): Your Dify application API key. If not provided, uses `DIFY_API_KEY` environment variable
 
-  - `modelId` (string): The ID of your Dify application.
-  - `settings` (optional object):
-    - `baseURL` (string): The base URL for the Dify API. Default is `https://api.dify.ai/v1`.
-    - `headers` (Record<string, string>): The headers that will be set to dify api
-
-- ChatSettings
-
-  - `inputs` (object): Additional inputs to send with the request.
-  - `responseMode` (string): Response mode, defaults to `"streaming"`.
-  - `apiKey` (string): Your Dify application API key. If not provided, it will use the `DIFY_API_KEY` environment variable.
+#### Headers
+- `user-id` (required): Unique identifier for the end user
+- `chat-id` (optional): Conversation ID to continue existing conversations
 
 ## Documentation
 
