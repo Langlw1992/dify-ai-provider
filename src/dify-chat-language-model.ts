@@ -151,16 +151,11 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
       conversationId?: string;
       messageId?: string;
       taskId?: string;
-      
+
       // Reasoning parsing state
-      contentBuffer: string;
       isInThinking: boolean;
       reasoningId: string;
-      currentReasoningContent: string;
-      
-      // Answer content tracking
-      previousAnswerContent?: string;
-      
+
       // Workflow state (using Dify's actual data)
       workflowId?: string;
       workflowRunId?: string;
@@ -172,17 +167,15 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
         startedAt?: number;
         finishedAt?: number;
       }>;
-      
+
       // Text output state
       isActiveText: boolean;
       isActiveReasoning: boolean;
     }
 
     const state: StreamState = {
-      contentBuffer: "",
       isInThinking: false,
       reasoningId: "",
-      currentReasoningContent: "",
       nodes: new Map(),
       isActiveText: false,
       isActiveReasoning: false,
@@ -194,76 +187,99 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
       state: StreamState,
       controller: TransformStreamDefaultController<LanguageModelV2StreamPart>
     ) => {
-      state.contentBuffer += newContent;
-      
-      // Check for thinking start
-      const thinkStartMatch = state.contentBuffer.match(/<think>/);
-      if (thinkStartMatch && !state.isInThinking) {
+      // Check for thinking start in the new content - correct format: <think>\n
+      if (newContent.includes('<think>\n') && !state.isInThinking) {
         state.isInThinking = true;
         state.reasoningId = this.generateId();
         state.isActiveReasoning = true;
-        
+
         controller.enqueue({
           type: "reasoning-start",
           id: state.reasoningId
         });
+
+        // Extract content after <think>\n and send as reasoning delta
+        const thinkStartIndex = newContent.indexOf('<think>\n');
+        const contentAfterThink = newContent.substring(thinkStartIndex + '<think>\n'.length);
+
+        if (contentAfterThink) {
+          controller.enqueue({
+            type: "reasoning-delta",
+            id: state.reasoningId,
+            delta: contentAfterThink
+          });
+        }
+        return; // Don't process further in this iteration
       }
-      
-      // Process reasoning content
+
+      // If we're in thinking mode, send reasoning delta directly
       if (state.isInThinking) {
-        const thinkingContent = extractThinkingContent(state.contentBuffer);
-        if (thinkingContent !== state.currentReasoningContent) {
-          const newReasoningDelta = thinkingContent.slice(state.currentReasoningContent.length);
-          if (newReasoningDelta) {
+        // Check if this content contains the end of thinking
+        if (newContent.includes('\n</think>')) {
+          // Split content at the thinking end
+          const parts = newContent.split('\n</think>');
+          const reasoningPart = parts[0];
+          const textPart = parts[1] || '';
+
+          // Send remaining reasoning content (before </think>)
+          if (reasoningPart) {
             controller.enqueue({
               type: "reasoning-delta",
               id: state.reasoningId,
-              delta: newReasoningDelta
+              delta: reasoningPart
             });
-            state.currentReasoningContent = thinkingContent;
           }
-        }
-      }
-      
-      // Check for thinking end
-      const thinkEndMatch = state.contentBuffer.match(/<\/think>/);
-      if (thinkEndMatch && state.isInThinking) {
-        controller.enqueue({
-          type: "reasoning-end",
-          id: state.reasoningId
-        });
-        state.isInThinking = false;
-        state.isActiveReasoning = false;
-        state.currentReasoningContent = "";
-      }
-      
-      // Process answer content (remove think tags)
-      const answerContent = state.contentBuffer.replace(/<think>.*?<\/think>/gs, '');
-      if (answerContent && !state.isActiveText) {
-        state.isActiveText = true;
-        controller.enqueue({
-          type: "text-start",
-          id: "answer"
-        });
-      }
-      
-      if (answerContent) {
-        // Only send delta for new content
-        const previousAnswerLength = state.previousAnswerContent?.length || 0;
-        if (answerContent.length > previousAnswerLength) {
-          const newAnswerDelta = answerContent.slice(previousAnswerLength);
+
+          // End reasoning
           controller.enqueue({
-            type: "text-delta",
-            id: "answer",
-            delta: newAnswerDelta
+            type: "reasoning-end",
+            id: state.reasoningId
           });
-          state.previousAnswerContent = answerContent;
+          state.isInThinking = false;
+          state.isActiveReasoning = false;
+
+          // Start text stream if we have text content after </think>
+          if (textPart) {
+            state.isActiveText = true;
+            controller.enqueue({
+              type: "text-start",
+              id: "answer"
+            });
+            controller.enqueue({
+              type: "text-delta",
+              id: "answer",
+              delta: textPart
+            });
+          }
+        } else {
+          // Still in thinking mode, send all content as reasoning delta
+          controller.enqueue({
+            type: "reasoning-delta",
+            id: state.reasoningId,
+            delta: newContent
+          });
         }
+      } else {
+        // Not in thinking mode, process as regular text
+        if (!state.isActiveText) {
+          state.isActiveText = true;
+          controller.enqueue({
+            type: "text-start",
+            id: "answer"
+          });
+        }
+
+        controller.enqueue({
+          type: "text-delta",
+          id: "answer",
+          delta: newContent
+        });
       }
     };
 
     const extractThinkingContent = (buffer: string): string => {
-      const match = buffer.match(/<think>(.*?)(?:<\/think>|$)/s);
+      // Extract content between <think>\n and \n</think> (or end of buffer)
+      const match = buffer.match(/<think>\n(.*?)(?:\n<\/think>|$)/s);
       return match ? match[1] : "";
     };
 
@@ -294,7 +310,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                   state.workflowRunId = data.workflow_run_id as string;
                   state.workflowStartedAt = data.data.created_at as number;
                 }
-                
+
                 // Standard response-metadata
                 if (data.data && typeof data.data === "object" && "created_at" in data.data) {
                   controller.enqueue({
@@ -303,7 +319,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                     timestamp: new Date((data.data.created_at as number) * 1000)
                   });
                 }
-                
+
                 // Raw event with Dify-specific data
                 controller.enqueue({
                   type: "raw",
@@ -316,43 +332,32 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
               }
 
               case "workflow_finished": {
-                if (data.data && typeof data.data === "object" && "created_at" in data.data) {
-                  state.workflowFinishedAt = data.data.created_at as number;
-                  
+                // Update state with correct finished_at timestamp
+                if (data.data && typeof data.data === "object" && "finished_at" in data.data) {
+                  state.workflowFinishedAt = data.data.finished_at as number;
+
                   controller.enqueue({
                     type: "response-metadata",
                     id: data.workflow_run_id as string,
-                    timestamp: new Date((data.data.created_at as number) * 1000)
+                    timestamp: new Date((data.data.finished_at as number) * 1000)
                   });
                 }
-                
+
+                // Send raw event with correct duration from elapsed_time
                 controller.enqueue({
                   type: "raw",
                   rawValue: {
                     difyEvent: "workflow_finished",
-                    duration: state.workflowStartedAt && data.data && typeof data.data === "object" && "created_at" in data.data 
-                      ? (data.data.created_at as number) - state.workflowStartedAt 
+                    duration: data.data && typeof data.data === "object" && "elapsed_time" in data.data
+                      ? data.data.elapsed_time as number
                       : undefined,
                     ...data
                   }
                 });
 
-                // End active streams
-                if (state.isActiveReasoning) {
-                  controller.enqueue({
-                    type: "reasoning-end",
-                    id: state.reasoningId,
-                  });
-                  state.isActiveReasoning = false;
-                }
-                
-                if (state.isActiveText) {
-                  controller.enqueue({
-                    type: "text-end",
-                    id: "answer",
-                  });
-                  state.isActiveText = false;
-                }
+                // NOTE: Do NOT process content here - let message/agent_message events handle content
+                // NOTE: Do NOT send finish event here - only message_end should send finish
+                // NOTE: Do NOT end active streams here - let message_end handle stream ending
 
                 // Generate execution report
                 const executionReport = state.workflowId ? {
@@ -360,8 +365,8 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                   workflowRunId: state.workflowRunId,
                   startedAt: state.workflowStartedAt,
                   finishedAt: state.workflowFinishedAt,
-                  duration: state.workflowStartedAt && state.workflowFinishedAt 
-                    ? state.workflowFinishedAt - state.workflowStartedAt 
+                  duration: state.workflowStartedAt && state.workflowFinishedAt
+                    ? state.workflowFinishedAt - state.workflowStartedAt
                     : undefined,
                   nodes: Array.from(state.nodes.values()).map(node => ({
                     ...node,
@@ -370,8 +375,8 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                 } : undefined;
 
                 // Get total tokens from workflow_finished data
-                const totalTokens = (data.data && typeof data.data === "object" && "total_tokens" in data.data && typeof data.data.total_tokens === "number") 
-                  ? data.data.total_tokens 
+                const totalTokens = (data.data && typeof data.data === "object" && "total_tokens" in data.data && typeof data.data.total_tokens === "number")
+                  ? data.data.total_tokens
                   : 0;
 
                 controller.enqueue({
@@ -402,14 +407,14 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                     startedAt: data.created_at,
                   };
                   state.nodes.set(data.data.node_id as string, nodeInfo);
-                  
+
                   controller.enqueue({
                     type: "response-metadata",
                     id: `node-${data.data.node_id}`,
                     timestamp: new Date(data.created_at * 1000)
                   });
                 }
-                
+
                 controller.enqueue({
                   type: "raw",
                   rawValue: {
@@ -427,14 +432,14 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                   if (existingNode) {
                     existingNode.finishedAt = data.created_at;
                   }
-                  
+
                   controller.enqueue({
                     type: "response-metadata",
                     id: `node-${data.data.node_id}`,
                     timestamp: new Date(data.created_at * 1000)
                   });
                 }
-                
+
                 controller.enqueue({
                   type: "raw",
                   rawValue: {
@@ -454,7 +459,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                     timestamp: new Date(data.created_at * 1000)
                   });
                 }
-                
+
                 controller.enqueue({
                   type: "raw",
                   rawValue: {
@@ -470,7 +475,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                 // Type guard for answer property
                 if ("answer" in data && typeof data.answer === "string") {
                   parseContentWithThinking(data.answer, state, controller);
-                  
+
                   // Send response-metadata for agent_message with id
                   if (data.event === "agent_message" && "id" in data && typeof data.id === "string") {
                     controller.enqueue({
@@ -484,15 +489,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
               }
 
               case "message_end": {
-                // End active streams
-                if (state.isActiveReasoning) {
-                  controller.enqueue({
-                    type: "reasoning-end",
-                    id: state.reasoningId,
-                  });
-                  state.isActiveReasoning = false;
-                }
-                
+                // End text stream if active (reasoning should already be ended)
                 if (state.isActiveText) {
                   controller.enqueue({
                     type: "text-end",
@@ -501,9 +498,12 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                   state.isActiveText = false;
                 }
 
+                // NOTE: Reasoning should already be ended by this point
+                // If reasoning is still active, it means there was an error in the stream
+
                 // Extract usage data - prioritize data.total_tokens over metadata.usage
-                const usage = "metadata" in data && data.metadata && typeof data.metadata === "object" && "usage" in data.metadata 
-                  ? data.metadata.usage as any 
+                const usage = "metadata" in data && data.metadata && typeof data.metadata === "object" && "usage" in data.metadata
+                  ? data.metadata.usage as any
                   : undefined;
 
                 // Check if data.total_tokens exists (like workflow_finished)
@@ -521,8 +521,8 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                   workflowRunId: state.workflowRunId,
                   startedAt: state.workflowStartedAt,
                   finishedAt: state.workflowFinishedAt,
-                  duration: state.workflowStartedAt && state.workflowFinishedAt 
-                    ? state.workflowFinishedAt - state.workflowStartedAt 
+                  duration: state.workflowStartedAt && state.workflowFinishedAt
+                    ? state.workflowFinishedAt - state.workflowStartedAt
                     : undefined,
                   nodes: Array.from(state.nodes.values()).map(node => ({
                     ...node,

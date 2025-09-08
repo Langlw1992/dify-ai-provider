@@ -41,6 +41,7 @@ export const workflowStartedSchema = difyStreamEventBase.extend({
       id: z.string(),
       workflow_id: z.string(),
       created_at: z.number(),
+      inputs: z.record(z.any()),
     })
     .passthrough(),
 });
@@ -52,8 +53,20 @@ export const workflowFinishedSchema = difyStreamEventBase.extend({
     .object({
       id: z.string(),
       workflow_id: z.string(),
-      total_tokens: z.number().optional(),
+      total_tokens: z.number(),
       created_at: z.number(),
+      status: z.string(),
+      outputs: z.record(z.any()),
+      error: z.string(),
+      elapsed_time: z.number(),
+      total_steps: z.number(),
+      created_by: z.object({
+        id: z.string(),
+        user: z.string(),
+      }),
+      finished_at: z.number(),
+      exceptions_count: z.number(),
+      files: z.array(z.any()),
     })
     .passthrough(),
 });
@@ -66,6 +79,20 @@ export const nodeStartedSchema = difyStreamEventBase.extend({
       id: z.string(),
       node_id: z.string(),
       node_type: z.string(),
+      title: z.string(),
+      index: z.number(),
+      predecessor_node_id: z.string().nullable(),
+      inputs: z.record(z.any()).nullable(),
+      created_at: z.number(),
+      extras: z.record(z.any()),
+      parallel_id: z.string().nullable(),
+      parallel_start_node_id: z.string().nullable(),
+      parent_parallel_id: z.string().nullable(),
+      parent_parallel_start_node_id: z.string().nullable(),
+      iteration_id: z.string().nullable(),
+      loop_id: z.string().nullable(),
+      parallel_run_id: z.string().nullable(),
+      agent_strategy: z.any().nullable(),
     })
     .passthrough(),
 });
@@ -78,6 +105,25 @@ export const nodeFinishedSchema = difyStreamEventBase.extend({
       id: z.string(),
       node_id: z.string(),
       node_type: z.string(),
+      title: z.string(),
+      index: z.number(),
+      predecessor_node_id: z.string().nullable(),
+      inputs: z.record(z.any()).nullable(),
+      process_data: z.any().nullable(),
+      outputs: z.record(z.any()).nullable(), // Can be null
+      status: z.string(),
+      error: z.string().nullable(),
+      elapsed_time: z.number(),
+      execution_metadata: z.record(z.any()).nullable(), // Can be null
+      created_at: z.number(),
+      finished_at: z.number(),
+      files: z.array(z.any()),
+      parallel_id: z.string().nullable(),
+      parallel_start_node_id: z.string().nullable(),
+      parent_parallel_id: z.string().nullable(),
+      parent_parallel_start_node_id: z.string().nullable(),
+      iteration_id: z.string().nullable(),
+      loop_id: z.string().nullable(),
     })
     .passthrough(),
 });
@@ -99,11 +145,22 @@ export const messageEndSchema = difyStreamEventBase.extend({
           prompt_tokens: z.number(),
           completion_tokens: z.number(),
           total_tokens: z.number(),
+          prompt_unit_price: z.string(),
+          prompt_price_unit: z.string(),
+          prompt_price: z.string(),
+          completion_unit_price: z.string(),
+          completion_price_unit: z.string(),
+          completion_price: z.string(),
+          total_price: z.string(),
+          currency: z.string(),
+          latency: z.number(),
         })
         .passthrough(),
+      annotation_reply: z.any().nullable(),
+      retriever_resources: z.array(z.any()),
     })
     .passthrough(),
-  files: z.array(z.unknown()).optional(),
+  files: z.array(z.any()),
 });
 
 export const ttsMessageSchema = difyStreamEventBase.extend({
@@ -114,6 +171,10 @@ export const ttsMessageSchema = difyStreamEventBase.extend({
 export const ttsMessageEndSchema = difyStreamEventBase.extend({
   event: z.literal("tts_message_end"),
   audio: z.string(),
+});
+
+export const pingSchema = difyStreamEventBase.extend({
+  event: z.literal("ping"),
 });
 
 // {
@@ -213,7 +274,37 @@ export const difyStreamEventSchema = z
     ttsMessageEndSchema,
     agentThoughtSchema,
     agentMessageSchema,
+    pingSchema,
   ])
   .or(difyStreamEventBase); // Fallback for any other event types
 
+// Export TypeScript types for each event schema
+export type CompletionResponse = z.infer<typeof completionResponseSchema>;
+export type ErrorResponse = z.infer<typeof errorResponseSchema>;
+export type DifyStreamEventBase = z.infer<typeof difyStreamEventBase>;
+
+// Workflow event types
+export type WorkflowStartedEvent = z.infer<typeof workflowStartedSchema>;
+export type WorkflowFinishedEvent = z.infer<typeof workflowFinishedSchema>;
+
+// Node event types
+export type NodeStartedEvent = z.infer<typeof nodeStartedSchema>;
+export type NodeFinishedEvent = z.infer<typeof nodeFinishedSchema>;
+
+// Message event types
+export type MessageEvent = z.infer<typeof messageSchema>;
+export type MessageEndEvent = z.infer<typeof messageEndSchema>;
+
+// TTS event types
+export type TtsMessageEvent = z.infer<typeof ttsMessageSchema>;
+export type TtsMessageEndEvent = z.infer<typeof ttsMessageEndSchema>;
+
+// Agent event types
+export type AgentMessageEvent = z.infer<typeof agentMessageSchema>;
+export type AgentThoughtEvent = z.infer<typeof agentThoughtSchema>;
+
+// System event types
+export type PingEvent = z.infer<typeof pingSchema>;
+
+// Union type for all events
 export type DifyStreamEvent = z.infer<typeof difyStreamEventSchema>;
