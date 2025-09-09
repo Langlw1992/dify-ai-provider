@@ -39,7 +39,6 @@ interface ModelConfig {
 const difyFailedResponseHandler = createJsonErrorResponseHandler({
   errorSchema: errorResponseSchema as any,
   errorToMessage: (data: ErrorResponse) => {
-    console.log("Dify API error:", data);
     return `Dify API error: ${data.message}`;
   },
 });
@@ -61,7 +60,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
     this.modelId = modelId;
     this.config = config;
     this.generateId = generateId;
-    this.chatMessagesEndpoint = `${this.config.baseURL}/chat-messages`;
+    this.chatMessagesEndpoint = this.config.baseURL;
 
     // Make sure we set a default response mode
     if (!this.settings.responseMode) {
@@ -411,7 +410,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                   controller.enqueue({
                     type: "response-metadata",
                     id: `node-${data.data.node_id}`,
-                    timestamp: new Date(data.created_at * 1000)
+                    timestamp: new Date(data.created_at * 1000),
                   });
                 }
 
@@ -551,7 +550,6 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
               }
 
               default: {
-                // Unknown event types → raw event
                 controller.enqueue({
                   type: "raw",
                   rawValue: {
