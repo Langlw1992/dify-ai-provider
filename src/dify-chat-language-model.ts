@@ -276,12 +276,6 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
       }
     };
 
-    const extractThinkingContent = (buffer: string): string => {
-      // Extract content between <think>\n and \n</think> (or end of buffer)
-      const match = buffer.match(/<think>\n(.*?)(?:\n<\/think>|$)/s);
-      return match ? match[1] : "";
-    };
-
     return {
       stream: responseStream.pipeThrough(
         new TransformStream<
@@ -300,7 +294,6 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
             if (data.conversation_id) state.conversationId = data.conversation_id;
             if (data.message_id) state.messageId = data.message_id;
             if (data.task_id) state.taskId = data.task_id;
-
             // Handle all event types
             switch (data.event) {
               case "workflow_started": {
@@ -638,12 +631,18 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
     } = options.headers || {};
     options.headers = cleanHeaders;
 
+    const config = options.providerOptions?.dify
+
     return {
-      inputs: this.settings.inputs || {},
+      inputs: {
+        ...config,
+        ...(this.settings.inputs || {}),
+      },
       query,
       response_mode: this.settings.responseMode,
       conversation_id: conversationId,
       user: userId,
+      knowledgeFileList: [],
     };
   }
 }
