@@ -13,7 +13,6 @@ import {
   createJsonErrorResponseHandler,
   createJsonResponseHandler,
   FetchFunction,
-  generateId,
   postJsonToApi,
   type ParseResult,
 } from "@ai-sdk/provider-utils";
@@ -21,7 +20,7 @@ import type {DifyChatModelId, DifyChatSettings} from "./dify-chat-settings";
 import {
   completionResponseSchema,
   difyStreamEventSchema,
-  errorResponseSchema, MessageEndEvent, WorkflowFinishedEvent,
+  errorResponseSchema, MessageEndEvent,
 } from "./dify-chat-schema";
 import type {DifyStreamEvent} from "./dify-chat-schema";
 import type {z} from "zod";
@@ -48,7 +47,6 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
   readonly modelId: string;
   readonly supportedUrls: Record<string, RegExp[]> = {};
 
-  private readonly generateId: () => string;
   private readonly chatMessagesEndpoint: string;
   private readonly config: ModelConfig;
 
@@ -59,7 +57,6 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
   ) {
     this.modelId = modelId;
     this.config = config;
-    this.generateId = generateId;
     this.chatMessagesEndpoint = this.config.baseURL;
     if (!this.settings.responseMode) {
       this.settings.responseMode = "streaming";
@@ -252,17 +249,6 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
             }
             const data = chunk.value;
             switch (data.event) {
-              case "workflow_started": {
-                controller.enqueue({
-                  type: 'stream-start',
-                  warnings: [{
-                    type: 'other',
-                    message: 'workflow_started',
-                  }],
-                })
-                break;
-              }
-
               case "workflow_finished": {
                 if (state.isActiveText) {
                   controller.enqueue({
@@ -310,10 +296,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
               default: {
                 controller.enqueue({
                   type: 'raw',
-                  rawValue: {
-                    difyEvent: data.event,
-                    ...data
-                  }
+                  rawValue: data
                 });
                 break;
               }
@@ -343,7 +326,6 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
     }
 
     const latestMessage = messages[messages.length - 1];
-
     if (latestMessage.role !== "user") {
       throw new APICallError({
         message: "The last message must be a user message",
@@ -351,40 +333,18 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
         requestBodyValues: {latestMessageRole: latestMessage.role},
       });
     }
+    const attachmentList = Array.isArray(latestMessage.content) ?
+      latestMessage.content
+        .filter(part => part.type === 'file')
+        .map((part) => part.data)
+      : []
 
-    // Handle file/image attachments
-    const hasAttachments =
-      Array.isArray(latestMessage.content) &&
-      latestMessage.content.some((part) => {
-        return typeof part !== "string" && part !== null && typeof part === "object" && "type" in part && part.type === "file";
-      });
-
-    if (hasAttachments) {
-      throw new APICallError({
-        message: "Dify provider does not currently support file attachments",
-        url: this.chatMessagesEndpoint,
-        requestBodyValues: {hasAttachments: true},
-      });
-    }
-
-    // Extract the query from the latest user message
-    let query = "";
-    if (typeof latestMessage.content === "string") {
-      query = latestMessage.content;
-    } else if (Array.isArray(latestMessage.content)) {
-      // Handle text content parts
-      query = latestMessage.content
-        .map((part) => {
-          if (typeof part === "string") {
-            return part;
-          } else if (typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part) {
-            return part.text;
-          }
-          return "";
-        })
-        .filter(Boolean)
-        .join(" ");
-    }
+    const query = Array.isArray(latestMessage.content) ?
+      latestMessage.content
+        .filter(part => part.type === 'text')
+        .map((part) => part.text)
+        .join(' ')
+      : ''
 
     const conversationId = options.headers?.["chat-id"];
     const userId = options.headers?.["user-id"] ?? "you_should_pass_user-id";
@@ -406,7 +366,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
       response_mode: this.settings.responseMode,
       conversation_id: conversationId,
       user: userId,
-      knowledgeFileList: [],
+      knowledgeFileList: attachmentList,
     };
   }
 }
