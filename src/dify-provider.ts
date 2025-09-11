@@ -45,11 +45,6 @@ export function createDifyProvider(
       provider: "dify.chat",
       baseURL: options.baseURL || "https://api.dify.ai/v1",
       headers: () => ({
-        Authorization: `Bearer ${loadApiKey({
-          apiKey: settings.apiKey,
-          environmentVariableName: "DIFY_API_KEY",
-          description: "Dify API Key",
-        })}`,
         "Content-Type": "application/json",
         ...options.headers,
       }),
