@@ -153,8 +153,8 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
       state: StreamState,
       controller: TransformStreamDefaultController<LanguageModelV2StreamPart>
     ) => {
-      const thinkingStart = '<think>\n'
-      const thinkingEnd = '\n</think>'
+      const thinkingStart = '<thinking>\n'
+      const thinkingEnd = '\n</thinking>'
       if (newContent.includes(thinkingStart) && !state.isInThinking) {
         state.isInThinking = true;
 
@@ -163,7 +163,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
           id: 'reasoning'
         });
 
-        // Extract content after <think>\n and send as reasoning delta
+        // Extract content after <thinking>\n and send as reasoning delta
         const thinkStartIndex = newContent.indexOf(thinkingStart);
         const contentAfterThink = newContent.substring(thinkStartIndex + thinkingStart.length);
 
