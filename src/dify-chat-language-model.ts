@@ -153,8 +153,8 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
       state: StreamState,
       controller: TransformStreamDefaultController<LanguageModelV2StreamPart>
     ) => {
-      const thinkingStart = '<thinking>\n'
-      const thinkingEnd = '\n</thinking>'
+      const thinkingStart = '<think>\n'
+      const thinkingEnd = '\n</think>'
       if (newContent.includes(thinkingStart) && !state.isInThinking) {
         state.isInThinking = true;
 
