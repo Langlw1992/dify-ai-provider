@@ -249,6 +249,17 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
             }
             const data = chunk.value;
             switch (data.event) {
+              case 'workflow_started': {
+                controller.enqueue({
+                  type: 'stream-start',
+                  warnings: []
+                })
+                controller.enqueue({
+                  type: 'raw',
+                  rawValue: data
+                });
+                break;
+              }
               case "workflow_finished": {
                 if (state.isActiveText) {
                   controller.enqueue({
@@ -258,9 +269,9 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                   state.isActiveText = false;
                 }
                 controller.enqueue({
-                  type: 'response-metadata',
-                  id: data.conversation_id,
-                })
+                  type: 'raw',
+                  rawValue: data
+                });
                 break;
               }
 
@@ -336,7 +347,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
     const attachmentList = Array.isArray(latestMessage.content) ?
       latestMessage.content
         .filter(part => part.type === 'file')
-        .map((part) => part.data)
+        .map((part) => part.providerOptions?.fileInfo)
       : []
 
     const query = Array.isArray(latestMessage.content) ?
@@ -348,6 +359,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
 
     const conversationId = options.headers?.["chat-id"];
     const userId = options.headers?.["user-id"] ?? "you_should_pass_user-id";
+    const parent_message_id = options.headers?.["parent-message-id"];
     const {
       "chat-id": _,
       "user-id": __,
@@ -363,6 +375,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
         ...(this.settings.inputs || {}),
       },
       query,
+      parent_message_id,
       response_mode: this.settings.responseMode,
       conversation_id: conversationId,
       user: userId,
