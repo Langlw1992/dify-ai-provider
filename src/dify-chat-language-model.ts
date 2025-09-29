@@ -155,84 +155,104 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
     ) => {
       const thinkingStart = '<think>\n'
       const thinkingEnd = '\n</think>'
-      if (newContent.includes(thinkingStart) && !state.isInThinking) {
-        state.isInThinking = true;
 
-        controller.enqueue({
-          type: "reasoning-start",
-          id: 'reasoning'
-        });
-
-        // Extract content after <thinking>\n and send as reasoning delta
+      if (!state.isInThinking) {
+        // Check if thinking starts in this chunk
         const thinkStartIndex = newContent.indexOf(thinkingStart);
-        const contentAfterThink = newContent.substring(thinkStartIndex + thinkingStart.length);
-
-        if (contentAfterThink) {
-          controller.enqueue({
-            type: "reasoning-delta",
-            id: 'reasoning',
-            delta: contentAfterThink
-          });
-        }
-        return
-      }
-
-      if (state.isInThinking) {
-        // Check if this content contains the end of thinking
-        if (newContent.includes(thinkingEnd)) {
-          // Split content at the thinking end
-          const parts = newContent.split(thinkingEnd);
-          const reasoningPart = parts[0];
-          const textPart = parts[1] || '';
-          if (reasoningPart) {
-            controller.enqueue({
-              type: "reasoning-delta",
-              id: 'reasoning',
-              delta: reasoningPart
-            });
-          }
-
-          // End reasoning
-          controller.enqueue({
-            type: "reasoning-end",
-            id: 'reasoning'
-          });
-          state.isInThinking = false;
-
-          if (textPart) {
+        
+        if (thinkStartIndex === -1) {
+          // No thinking, treat as regular text
+          if (!state.isActiveText) {
             state.isActiveText = true;
             controller.enqueue({
               type: "text-start",
               id: "answer"
             });
+          }
+          controller.enqueue({
+            type: "text-delta",
+            id: "answer",
+            delta: newContent
+          });
+          return;
+        }
+
+        // Handle text before thinking (if any)
+        if (thinkStartIndex > 0) {
+          const textBefore = newContent.substring(0, thinkStartIndex);
+          if (!state.isActiveText) {
+            state.isActiveText = true;
             controller.enqueue({
-              type: "text-delta",
-              id: "answer",
-              delta: textPart
+              type: "text-start",
+              id: "answer"
             });
           }
-        } else {
-          // Still in thinking mode, send all content as reasoning delta
+          controller.enqueue({
+            type: "text-delta",
+            id: "answer",
+            delta: textBefore
+          });
+        }
+
+        // Start thinking
+        state.isInThinking = true;
+        controller.enqueue({
+          type: "reasoning-start",
+          id: 'reasoning'
+        });
+
+        // Process content after thinking start
+        const contentAfterStart = newContent.substring(thinkStartIndex + thinkingStart.length);
+        if (contentAfterStart) {
+          parseContentWithThinking(contentAfterStart, state, controller);
+        }
+      } else {
+        // Currently in thinking mode
+        const thinkEndIndex = newContent.indexOf(thinkingEnd);
+        
+        if (thinkEndIndex === -1) {
+          // No thinking end, all content is reasoning
           controller.enqueue({
             type: "reasoning-delta",
             id: 'reasoning',
             delta: newContent
           });
+          return;
         }
-      } else {
-        if (!state.isActiveText) {
-          state.isActiveText = true;
+
+        // Handle reasoning content before end
+        if (thinkEndIndex > 0) {
+          const reasoningPart = newContent.substring(0, thinkEndIndex);
           controller.enqueue({
-            type: "text-start",
-            id: "answer"
+            type: "reasoning-delta",
+            id: 'reasoning',
+            delta: reasoningPart
           });
         }
 
+        // End thinking
         controller.enqueue({
-          type: "text-delta",
-          id: "answer",
-          delta: newContent
+          type: "reasoning-end",
+          id: 'reasoning'
         });
+        state.isInThinking = false;
+
+        // Handle text after thinking end (if any)
+        const textAfter = newContent.substring(thinkEndIndex + thinkingEnd.length);
+        if (textAfter) {
+          if (!state.isActiveText) {
+            state.isActiveText = true;
+            controller.enqueue({
+              type: "text-start",
+              id: "answer"
+            });
+          }
+          controller.enqueue({
+            type: "text-delta",
+            id: "answer",
+            delta: textAfter
+          });
+        }
       }
     };
 
