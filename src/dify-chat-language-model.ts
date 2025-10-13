@@ -304,6 +304,10 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
               }
 
               case "message_end": {
+                controller.enqueue({
+                  type: 'raw',
+                  rawValue: data
+                })
                 const messageEndData = data as MessageEndEvent
                 controller.enqueue({
                   type: "finish",
