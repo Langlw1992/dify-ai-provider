@@ -161,6 +161,7 @@ export const messageEndSchema = difyStreamEventBase.extend({
     })
     .passthrough(),
   files: z.array(z.any()),
+  quoteInfo: z.record(z.any()),
 });
 
 export const ttsMessageSchema = difyStreamEventBase.extend({

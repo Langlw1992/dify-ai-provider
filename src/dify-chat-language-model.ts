@@ -318,11 +318,7 @@ export class DifyChatLanguageModel implements LanguageModelV2 {
                     totalTokens: messageEndData.metadata?.usage?.total_tokens,
                   },
                   providerMetadata: {
-                    difyWorkflowData: {
-                      conversationId: data.conversation_id ?? '',
-                      messageId: data.message_id ?? '',
-                      taskId: data.task_id ?? '',
-                    },
+                    quoteInfo: messageEndData.quoteInfo,
                   },
                 });
                 break;
